@@ -39,6 +39,7 @@ class Prefs private constructor(ctx: Context) {
     var lastState: String get() = s("ls"); set(v) = put("ls", v)
     var netFails: Int get() = i("nfail", 0); set(v) = put("nfail", v)
     var siteFails: Int get() = i("sfail", 0); set(v) = put("sfail", v)
+    var lastError: String get() = s("le"); set(v) = put("le", v)
 
     fun clearAll() = sp.edit().clear().apply()
 

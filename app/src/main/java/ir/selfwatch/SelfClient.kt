@@ -1,11 +1,13 @@
 package ir.selfwatch
 
+import okhttp3.ConnectionSpec
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.FormBody
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.TlsVersion
 import org.jsoup.Jsoup
 import java.io.IOException
 import java.time.LocalDate
@@ -55,6 +57,15 @@ class SelfClient {
     private val jar = Jar()
     private val http: OkHttpClient = OkHttpClient.Builder()
         .cookieJar(jar)
+        // سرورهای دانشگاهی گاهی فقط کیت‌های رمز قدیمی‌تر TLS 1.2 را دارند؛ فقط TLS 1.2/1.3 مجاز است
+        .connectionSpecs(
+            listOf(
+                ConnectionSpec.MODERN_TLS,
+                ConnectionSpec.Builder(ConnectionSpec.COMPATIBLE_TLS)
+                    .tlsVersions(TlsVersion.TLS_1_3, TlsVersion.TLS_1_2)
+                    .build()
+            )
+        )
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(25, TimeUnit.SECONDS)
         .callTimeout(60, TimeUnit.SECONDS)
@@ -73,6 +84,8 @@ class SelfClient {
         http.connectionPool.evictAll()
     }
 
+    @Volatile private var step = "شروع"
+
     private class Resp(val url: HttpUrl, val code: Int, val body: String)
 
     private fun send(req: Request.Builder): Resp {
@@ -82,9 +95,13 @@ class SelfClient {
         }
     }
 
-    private fun get(url: String): Resp = send(Request.Builder().url(url).get())
+    private fun get(url: String, what: String): Resp {
+        step = what
+        return send(Request.Builder().url(url).get())
+    }
 
-    private fun post(url: String, form: Map<String, String>, referer: String, ajax: Boolean): Resp {
+    private fun post(url: String, form: Map<String, String>, referer: String, ajax: Boolean, what: String): Resp {
+        step = what
         val fb = FormBody.Builder()
         form.forEach { (k, v) -> fb.add(k, v) }
         val rb = Request.Builder().url(url).post(fb.build())
@@ -105,7 +122,7 @@ class SelfClient {
             r.url.encodedPath.startsWith("/login") || r.body.contains("name=\"password\"")
 
     private fun login(user: String, pass: String) {
-        var page = get("https://$SELF/")
+        var page = get("https://$SELF/", "باز کردن سلف")
         if (isSelfHome(page)) return // نشست هنوز معتبر است
         if (page.url.host != "my.semnan.ac.ir") throw AuthEx(ErrKind.SITE_CHANGED, "مسیر ورود تغییر کرده")
 
@@ -118,11 +135,11 @@ class SelfClient {
             val r1 = post(
                 "https://my.semnan.ac.ir/users/login/user",
                 mapOf("username" to user, "password" to pass, "_token" to token),
-                loginUrl, ajax = true
+                loginUrl, ajax = true, what = "ورود (مرحله ۱)"
             )
             when (r1.code) {
                 404, 401 -> throw AuthEx(ErrKind.BAD_CREDENTIALS, "نام کاربری یا رمز اشتباه است")
-                419, 421 -> { page = get("https://$SELF/"); continue } // توکن منقضی؛ یک بار دیگر
+                419, 421 -> { page = get("https://$SELF/", "تازه‌سازی توکن"); continue } // توکن منقضی؛ یک بار دیگر
                 in 200..299 -> {}
                 else -> throw AuthEx(ErrKind.NETWORK, "کد ${r1.code}")
             }
@@ -133,11 +150,11 @@ class SelfClient {
             val r2 = post(
                 "https://my.semnan.ac.ir/login",
                 mapOf("_token" to token, "username" to user, "password" to pass, "tfa" to ""),
-                loginUrl, ajax = false
+                loginUrl, ajax = false, what = "ورود (مرحله ۲)"
             )
             if (isSelfHome(r2)) return
             // شاید به پورتال رفته باشد؛ یک بار سلف را دوباره باز می‌کنیم
-            val r3 = get("https://$SELF/")
+            val r3 = get("https://$SELF/", "بازگشت به سلف")
             if (isSelfHome(r3)) return
             if (r3.url.host == "my.semnan.ac.ir" && r3.url.encodedPath.startsWith("/login")) {
                 throw AuthEx(ErrKind.BAD_CREDENTIALS, "ورود انجام نشد")
@@ -181,7 +198,7 @@ class SelfClient {
     private fun loadWeek(label: String): List<DayRow>? {
         var sawTable = false
         for (w in listOf<Int?>(null, 1, -1)) {
-            val r = get(RESERVE + if (w == null) "" else "?week=$w")
+            val r = get(RESERVE + if (w == null) "" else "?week=$w", "خواندن جدول رزرو")
             if (needsLogin(r)) throw NeedLogin()
             val rows = parseRows(r.body)
             if (rows.isNotEmpty()) sawTable = true
@@ -213,9 +230,9 @@ class SelfClient {
         } catch (e: AuthEx) {
             CheckResult.Error(e.kind, e.message.orEmpty())
         } catch (e: IOException) {
-            CheckResult.Error(ErrKind.NETWORK, "خطای شبکه")
+            CheckResult.Error(ErrKind.NETWORK, "$step\n${e.javaClass.simpleName}: ${e.message.orEmpty().take(160)}")
         } catch (e: Exception) {
-            CheckResult.Error(ErrKind.SITE_CHANGED, "خطای غیرمنتظره")
+            CheckResult.Error(ErrKind.SITE_CHANGED, "$step\n${e.javaClass.simpleName}: ${e.message.orEmpty().take(160)}")
         } finally {
             http.connectionPool.evictAll()
         }
@@ -225,6 +242,6 @@ class SelfClient {
         private const val SELF = "self.semnan.ac.ir"
         private const val RESERVE = "https://self.semnan.ac.ir/people/reserve"
         private const val UA =
-            "Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36 SelfWatch/1.0"
+            "Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36 SelfWatch/1.1"
     }
 }

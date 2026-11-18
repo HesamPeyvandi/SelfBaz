@@ -103,8 +103,8 @@ class MonitorService : Service() {
         val target = Schedule.targetSaturday(now.toLocalDate())
         val done = p.notifiedFor == Jalali.format(target)
 
-        // در صورت خطاهای پیاپی شبکه، فاصله را موقتاً بیشتر می‌کنیم (۱×، ۲×، ۴×، ۸×)
-        val interval = p.intervalMin.toLong() * (1L shl minOf(p.netFails, 3))
+        // فاصله دقیقاً همان است که کاربر انتخاب کرده؛ فقط بعد از ۳ خطای شبکه‌ی پیاپی دو برابر می‌شود
+        val interval = p.intervalMin.toLong() * (if (p.netFails >= 3) 2L else 1L)
         val next = if (done) Schedule.afterDone(now, p.activeDays)
         else Schedule.nextCheck(now, interval, p.activeDays)
 

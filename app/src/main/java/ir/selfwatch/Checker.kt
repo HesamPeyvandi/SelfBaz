@@ -39,31 +39,32 @@ object Checker {
 
         when (res) {
             is CheckResult.Open -> {
-                p.lastState = "open"; p.netFails = 0; p.siteFails = 0
+                p.lastState = "open"; p.netFails = 0; p.siteFails = 0; p.lastError = ""
                 if (p.notifiedFor != label) {
                     p.notifiedFor = label
                     if (!manual) Notifs.lunchOpened(app, res.label)
                 }
             }
-            is CheckResult.Closed -> { p.lastState = "closed"; p.netFails = 0; p.siteFails = 0 }
+            is CheckResult.Closed -> { p.lastState = "closed"; p.netFails = 0; p.siteFails = 0; p.lastError = "" }
             is CheckResult.NotFound -> {
                 p.lastState = "notfound"; p.netFails = 0
+                p.lastError = "ردیف ${res.label} در جدول سایت پیدا نشد."
                 p.siteFails = p.siteFails + 1
                 if (p.siteFails == 3) Notifs.problem(app, "روز هدف در جدول سایت پیدا نشد. ممکن است ساختار سایت عوض شده باشد.")
             }
             is CheckResult.Error -> when (res.kind) {
-                ErrKind.NETWORK -> { p.lastState = "net"; p.netFails = p.netFails + 1 }
+                ErrKind.NETWORK -> { p.lastState = "net"; p.lastError = res.msg; if (!manual) p.netFails = p.netFails + 1 }
                 ErrKind.BAD_CREDENTIALS -> {
                     // برای جلوگیری از قفل شدن حساب، پایش را متوقف می‌کنیم
-                    p.lastState = "auth"; p.enabled = false
+                    p.lastState = "auth"; p.enabled = false; p.lastError = res.msg
                     Notifs.problem(app, "نام کاربری یا رمز اشتباه است. پایش متوقف شد؛ اطلاعات را اصلاح کنید.")
                 }
                 ErrKind.UNSUPPORTED_2FA -> {
-                    p.lastState = "2fa"; p.enabled = false
+                    p.lastState = "2fa"; p.enabled = false; p.lastError = res.msg
                     Notifs.problem(app, "این حساب رمز دوم (پیامکی/Authenticator) دارد و پشتیبانی نمی‌شود.")
                 }
                 ErrKind.SITE_CHANGED -> {
-                    p.lastState = "site"
+                    p.lastState = "site"; p.lastError = res.msg
                     p.siteFails = p.siteFails + 1
                     if (p.siteFails == 3) Notifs.problem(app, "ساختار سایت سلف تغییر کرده؛ برنامه باید به‌روز شود.")
                 }

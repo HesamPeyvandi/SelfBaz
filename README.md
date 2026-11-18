@@ -22,3 +22,7 @@
 ## محدودیت‌ها
 - حساب‌های دارای رمز دوم (پیامکی/Authenticator) پشتیبانی نمی‌شوند.
 - اگر ساختار سایت سلف عوض شود، برنامه خطا می‌دهد و باید به‌روز شود.
+
+## منابع
+- فونت: Vazirmatn (SIL OFL) — https://github.com/rastikerdar/vazirmatn
+- آیکون‌ها: Material Design Icons (Apache 2.0) — https://pictogrammers.com/library/mdi/
